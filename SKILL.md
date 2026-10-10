@@ -194,8 +194,8 @@ json.dump(meta, open(f'{OUT}/meta.json', 'w'), indent=1)
 ## 进阶 B：把新镜头换进已有成片（不动音频）
 1. 用 `ffmpeg -vf "select='gt(scene,0.1)',showinfo"` 找旧镜头精确起止帧（注意要 `-v info`）。
 2. 新镜头帧数 = 旧镜头槽位帧数（按小节：2 小节 ≈ 3.9s @123BPM，30fps 即 116 帧）。
-3. 拼接：`trim=end_frame=A` + 新镜头 + `trim=start_frame=B` → `concat`，`-map 0:a -c:a copy` 保持音画同步。
-4. 画质不要刻意压：用 `-crf 15`（不设 maxrate），在用户电脑上的 shell 里直接合成，就不受 30MB 写回限制；检查总帧数与原片一致。注意 device shell 的后台进程会在调用结束时被杀，要在单次调用（≤180s）内跑完，用 `-preset fast`。
+3. 拼接：`trim=end_frame=A` + 新镜头 + `trim=start_frame=B` → `concat`，`-map 0:a -c:a copy` 保持音画同步。多个镜头一次替换时，用一个 filter_complex 把原片切段和新镜头交替 concat。
+4. 画质不要刻意压：用 `-crf 15`（不设 maxrate），在用户电脑上的 shell 里直接合成，就不受 30MB 写回限制；检查总帧数与原片一致。注意 device shell 的后台进程会在调用结束时被杀，要在单次调用（≤180s）内跑完，用 `-preset fast`。大文件（>~30MB）从用户电脑传到云端会超时，改成每个镜头截成 crf10 的小片段再传。
 5. 换完抽帧看接缝（前后各 0.2s）。
 
 ## 额度/模型建议
