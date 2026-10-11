@@ -62,8 +62,8 @@ class Trajectory:
     def at(self, i):
         a = self._raw(i)
         if getattr(self, '_yaw', None) is None: self.yaw_track()
-        k = int(round(min(max(i, self.spec['enter']), self.spec['exit'])))
-        a['yaw'] = ((self._yaw[k] + 180) % 360) - 180
+        ii = min(max(i, self.spec['enter']), self.spec['exit']); k0 = int(math.floor(ii)); k1 = min(self.spec['exit'], k0 + 1); f = ii - k0
+        a['yaw'] = (((1 - f) * self._yaw[k0] + f * self._yaw[k1] + 180) % 360) - 180   # 子帧之间也连续
         return a
 
     def _raw(self, i):
