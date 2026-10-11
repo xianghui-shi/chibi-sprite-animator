@@ -50,7 +50,23 @@ class Trajectory:
         else:
             self.T = None
 
+    def yaw_track(self, max_rate=7.0, sigma=3.0):
+        """整段镜头的车头朝向：先展开角度、高斯平滑，再限制每帧最多转 max_rate 度——车头只能顺着弯道连续转，不能掉头"""
+        from scipy.ndimage import gaussian_filter1d
+        F = np.arange(self.spec['enter'], self.spec['exit'] + 1)
+        y = np.unwrap(np.radians([self._raw(i)['yaw'] for i in F])); y = gaussian_filter1d(y, sigma, mode='nearest')
+        y = np.degrees(y); out = [y[0]]
+        for v in y[1:]: out.append(out[-1] + float(np.clip(v - out[-1], -max_rate, max_rate)))
+        self._yaw = dict(zip(F.tolist(), out))
+
     def at(self, i):
+        a = self._raw(i)
+        if getattr(self, '_yaw', None) is None: self.yaw_track()
+        k = int(round(min(max(i, self.spec['enter']), self.spec['exit'])))
+        a['yaw'] = ((self._yaw[k] + 180) % 360) - 180
+        return a
+
+    def _raw(self, i):
         """第 i 帧：返回 dict(x, y, h, yaw, lean, dir, visible)；dir 是画面上的行进方向单位矢量"""
         e, x_ = self.spec['enter'], self.spec['exit']
         p = (i - e) / max(1e-6, x_ - e)
