@@ -97,3 +97,108 @@ def overlay(plate_bgr, tr, frames, path_pts=None):
         cv2.arrowedLine(im, (x, y), (int(x + d[0] * 40), int(y + d[1] * 40)), (0, 0, 255), 2, tipLength=0.35)
         cv2.putText(im, f'{i} y{a["yaw"]:.0f} L{a["lean"]:.0f}', (x + 6, y - int(h) - 4), 0, 0.42, (255, 255, 255), 1)
     return im
+
+# ---------- 赛道约束：轨迹放在路面中间，可以压边，不能越线 ----------
+def asphalt_mask(plate_bgr, y_top=0):
+    """识别沥青：低饱和、中等亮度、中性灰；取最大连通块并填小洞（轮胎印、反光）"""
+    import cv2
+    hsv = cv2.cvtColor(plate_bgr, cv2.COLOR_BGR2HSV).astype(np.float32)
+    lab = cv2.cvtColor(plate_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+    s, v, a, b = hsv[..., 1], hsv[..., 2], lab[..., 1] - 128, lab[..., 2] - 128
+    m = ((s < 40) & (v > 60) & (v < 175) & (np.abs(a) < 8) & (np.abs(b) < 10)).astype(np.uint8) * 255
+    m[:y_top] = 0
+    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+    n, lb, st, _ = cv2.connectedComponentsWithStats(m); k = 1 + np.argmax(st[1:, cv2.CC_STAT_AREA])
+    m = ((lb == k) * 255).astype(np.uint8)
+    inv = cv2.bitwise_not(m); n2, lb2, st2, _ = cv2.connectedComponentsWithStats(inv)
+    for j in range(1, n2):
+        if st2[j, cv2.CC_STAT_AREA] < 4000: m[lb2 == j] = 255
+    return m > 0
+
+def _edges(mask, x, y, nx, ny, lim=900):
+    """沿法线两侧走到路面边缘；碰到画面边界记为 None（路面延伸到画外）"""
+    H, W = mask.shape; out = []
+    for sgn in (-1, 1):
+        e = None
+        for d in range(1, lim):
+            px, py = int(round(x + sgn * nx * d)), int(round(y + sgn * ny * d))
+            if not (0 <= px < W and 0 <= py < H): break
+            if not mask[py, px]: e = d - 1; break
+        out.append(e)
+    return out   # [左侧距离, 右侧距离]（沿 -n / +n）
+
+def fit_to_track(spec, mask, lane=0.5, margin_k=0.45, iters=4):
+    """把 spec['path'] 推到路面中间：lane=0.5 正中；margin = margin_k × 车高（车身半宽 + 余量）。返回新 path 和每点余量报告"""
+    sp = dict(spec)
+    for _ in range(iters):
+        tr = Trajectory(sp); u = np.linspace(0, 1, 40); pts = []
+        for uu in u:
+            x, y = float(tr.sx(uu)), float(tr.sy(uu)); h = float(np.exp(tr.sh(uu)))
+            dx, dy = float(tr.sx(min(1, uu + 1e-3)) - tr.sx(max(0, uu - 1e-3))), float(tr.sy(min(1, uu + 1e-3)) - tr.sy(max(0, uu - 1e-3)))
+            L = math.hypot(dx, dy) + 1e-9; nx, ny = -dy / L, dx / L
+            if not mask[min(mask.shape[0] - 1, max(0, int(y))), min(mask.shape[1] - 1, max(0, int(x)))]:
+                ys, xs = np.nonzero(mask); j = np.argmin((xs - x) ** 2 + (ys - y) ** 2); x, y = float(xs[j]), float(ys[j])
+            el, er = _edges(mask, x, y, nx, ny)
+            mg = margin_k * h
+            if el is not None and er is not None:
+                w = el + er; t = -el + lane * w                   # 以当前点为 0，沿 +n 的目标偏移
+                t = float(np.clip(t, -el + mg, er - mg)) if w > 2 * mg else (er - el) / 2
+            elif el is not None: t = -el + max(mg, 5 * h * lane * 2) * 1.0; t = min(t, 400)
+            elif er is not None: t = er - max(mg, 5 * h * (1 - lane) * 2); t = max(t, -400)
+            else: t = 0.0
+            pts.append([x + nx * t, y + ny * t])
+        pts = np.array(pts)
+        k = np.ones(5) / 5; sm = np.stack([np.convolve(np.pad(pts[:, i], 2, mode='edge'), k, 'valid') for i in range(2)], 1)
+        sm[0], sm[-1] = pts[0], pts[-1]
+        sp['path'] = sm[::3].round(1).tolist() + ([sm[-1].round(1).tolist()] if (len(sm) - 1) % 3 else [])
+    return sp
+
+def clearance_report(spec, mask, margin_k=0.3, frames=None):
+    """逐帧检查：车身两侧（沿路面法线 ±margin_k×h）是否都在沥青上。返回最差余量和出界帧"""
+    tr = Trajectory(spec); bad = []; worst = 1e9
+    fr = frames or range(spec['enter'], spec['exit'] + 1)
+    for i in fr:
+        a = tr.at(i); d = a['dir']; nx, ny = -d[1], d[0]
+        el, er = _edges(mask, a['x'], a['y'], nx, ny)
+        need = margin_k * a['h']
+        for e in (el, er):
+            if e is None: continue
+            worst = min(worst, e - need)
+            if e < need: bad.append((i, round(e - need, 1)))
+    return worst, bad
+
+def route_on_track(mask, anchors, k=6.0, d0=40.0, step=4):
+    """沿路面走"最远离边线"的路线：代价 = 1 + k·(d0/到边线距离)²，越线代价无穷大。
+    anchors: 必经点（起点、弯心方向、终点…），按行驶方向排列。画面边界不算边线（路面延伸到画外）。返回稠密点列。"""
+    from scipy import ndimage
+    from skimage.graph import route_through_array
+    m = mask[::step, ::step]
+    pad = np.pad(m, 1, constant_values=True)                       # 画外视为路面延伸
+    D = ndimage.distance_transform_edt(pad)[1:-1, 1:-1] * step
+    cost = np.where(m, 1 + k * (d0 / np.maximum(D, 1)) ** 2, 1e6)
+    pts = []
+    for a, b in zip(anchors[:-1], anchors[1:]):
+        s = (int(a[1] / step), int(a[0] / step)); e = (int(b[1] / step), int(b[0] / step))
+        p, _ = route_through_array(cost, s, e, fully_connected=True, geometric=True)
+        seg = [(c * step, r * step) for r, c in p]
+        pts += seg if not pts else seg[1:]
+    P = np.array(pts, float)
+    for _ in range(3):                                             # 平滑锯齿
+        P[1:-1] = (P[:-2] + 2 * P[1:-1] + P[2:]) / 4
+    return P, D
+
+def track_topology(mask, min_branch=60):
+    """检查底图里的路面是不是"一条不分叉的带子"：骨架化后数分叉点和端点。
+    合格：端点 2 个（进、出）、无分叉。Y 型/岔路会报出分叉点。"""
+    from skimage.morphology import skeletonize
+    from scipy import ndimage
+    sk = skeletonize(ndimage.binary_opening(mask, iterations=6))
+    # 去掉短毛刺
+    for _ in range(min_branch):
+        nb = ndimage.convolve(sk.astype(int), np.ones((3, 3), int), mode='constant') - sk
+        ends = sk & (nb == 1); sk = sk & ~ends
+    nb = ndimage.convolve(sk.astype(int), np.ones((3, 3), int), mode='constant') - sk
+    junc = np.argwhere(sk & (nb >= 3)); ends = np.argwhere(sk & (nb == 1))
+    lab, n = ndimage.label(ndimage.binary_dilation(sk & (nb >= 3), iterations=3))
+    return dict(junctions=int(n), junction_pts=[tuple(map(int, p[::-1])) for p in junc[:: max(1, len(junc) // 6 or 1)]][:6], skeleton=sk)
