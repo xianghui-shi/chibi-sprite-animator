@@ -26,7 +26,12 @@ class Trajectory:
         # 稠密采样 → 地面坐标 (X, Z) → 真实弧长
         u = np.linspace(0, 1, 4001); x, y, h = self.sx(u), self.sy(u), np.exp(self.sh(u))
         X, Z = (x - cx) * HB / h, self.f * HB / h
-        ds = np.hypot(np.diff(X), np.diff(Z)); S = np.r_[0, np.cumsum(ds)]
+        if spec.get('metric', 'ground') == 'screen':
+            # 画面度量：每帧移动的像素 ∝ 车的大小（远处慢、近处快），不让纵深的透视放大把时间全吃掉
+            hm = (h[1:] + h[:-1]) / 2; ds = np.hypot(np.diff(x), np.diff(y)) / hm * HB
+        else:
+            ds = np.hypot(np.diff(X), np.diff(Z))
+        S = np.r_[0, np.cumsum(ds)]
         self.u, self.X, self.Z, self.S = u, X, Z, S
         self.length_m = S[-1]
         # 曲率（地面坐标）
@@ -38,6 +43,12 @@ class Trajectory:
         # 可选：手动压弯关键帧 lean=[[u, 度], ...] 和弯道方向 turn（-1 右弯 / +1 左弯），比由曲率推算更稳
         self.lean_k = PchipInterpolator(*np.array(spec['lean'], float).T) if 'lean' in spec else None
         self.turn_fix = spec.get('turn')
+        # 可选：速度曲线 speed_k=[[u, km/h], ...]（刹车入弯、弯心最慢、出弯加速）。时间 = ∫ ds / v
+        if 'speed_k' in spec:
+            sk = np.array(spec['speed_k'], float); vv = np.interp(self.u, sk[:, 0], sk[:, 1]) / 3.6
+            dt = np.diff(self.S) / ((vv[1:] + vv[:-1]) / 2); self.T = np.r_[0, np.cumsum(dt)]; self.vv = vv
+        else:
+            self.T = None
 
     def at(self, i):
         """第 i 帧：返回 dict(x, y, h, yaw, lean, dir, visible)；dir 是画面上的行进方向单位矢量"""
@@ -45,13 +56,15 @@ class Trajectory:
         p = (i - e) / max(1e-6, x_ - e)
         vis = 0 <= p <= 1
         p = min(1.0, max(0.0, p))
-        s = p * self.length_m                                             # 按真实距离匀速
+        if self.T is not None: s = float(np.interp(p * self.T[-1], self.T, self.S))   # 按速度曲线走
+        else: s = p * self.length_m                                       # 按真实距离匀速
         u = float(np.interp(s, self.S, self.u))
         x, y, h = float(self.sx(u)), float(self.sy(u)), float(np.exp(self.sh(u)))
         dX, dZ = float(np.interp(s, self.S, self.dX)), float(np.interp(s, self.S, self.dZ))
         yaw = math.degrees(math.atan2(dX, -dZ))                           # 0 朝镜头来，+90 向右横穿，±180 远离
         k = float(np.interp(s, self.S, self.kappa))
-        lean = math.degrees(math.atan(self.v ** 2 * abs(k) / 9.81))       # 压弯角（只取大小）
+        v = float(np.interp(s, self.S, self.vv)) if self.T is not None else self.v
+        lean = math.degrees(math.atan(v ** 2 * abs(k) / 9.81))            # 压弯角（只取大小）
         lean = min(lean, 55.0)
         if self.lean_k is not None: lean = float(np.clip(self.lean_k(u), 0, 60))
         turn = self.turn_fix if self.turn_fix is not None else float(np.sign(k))
@@ -202,3 +215,50 @@ def track_topology(mask, min_branch=60):
     junc = np.argwhere(sk & (nb >= 3)); ends = np.argwhere(sk & (nb == 1))
     lab, n = ndimage.label(ndimage.binary_dilation(sk & (nb >= 3), iterations=3))
     return dict(junctions=int(n), junction_pts=[tuple(map(int, p[::-1])) for p in junc[:: max(1, len(junc) // 6 or 1)]][:6], skeleton=sk)
+
+def track_topology2(mask, border=8, spur_len=220):
+    """改进版：路面被画框截断处会长出伸向边框的短骨架，这类"边框短刺"不算分叉。
+    返回 dict(junctions, ends, skeleton)。合格 = 去掉边框短刺后 junctions == 0。"""
+    from skimage.morphology import skeletonize
+    from scipy import ndimage
+    H, W = mask.shape
+    sk = skeletonize(ndimage.binary_opening(mask, iterations=6)).copy()
+    K = np.ones((3, 3), int)
+    def nbr(s): return ndimage.convolve(s.astype(int), K, mode='constant') - s
+    def near_border(y, x): return y < border or x < border or y >= H - border or x >= W - border
+    changed = True
+    while changed:
+        changed = False
+        nb = nbr(sk)
+        for (y, x) in np.argwhere(sk & (nb == 1)):
+            path = [(y, x)]; cy, cx = y, x; prev = None
+            while True:
+                ns = [(cy + dy, cx + dx) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if (dy or dx) and 0 <= cy + dy < H and 0 <= cx + dx < W and sk[cy + dy, cx + dx] and (cy + dy, cx + dx) != prev and (cy + dy, cx + dx) not in path[-3:]]
+                if len(ns) != 1 or len(path) > spur_len: break
+                prev = (cy, cx); cy, cx = ns[0]; path.append((cy, cx))
+            hit_junction = len(ns) >= 2
+            if hit_junction and len(path) <= spur_len and (near_border(y, x) or len(path) < 25):
+                for p in path[:-1]: sk[p] = False
+                changed = True
+    nb = nbr(sk)
+    lab, n = ndimage.label(ndimage.binary_dilation(sk & (nb >= 3), iterations=3))
+    ends = [tuple(map(int, p[::-1])) for p in np.argwhere(sk & (nb == 1))]
+    return dict(junctions=int(n), ends=ends, skeleton=sk)
+
+def centerline(mask, start_hint, end_hint, border=50, short=120):
+    """路面中线：骨架化 → 剪掉伸向画框或很短的毛刺 → 从起点附近的端点沿骨架走到终点附近的端点。
+    返回按行驶方向排列的稠密点列（就在路面正中，天然不压线）。"""
+    from skimage.morphology import skeletonize
+    from skimage.graph import route_through_array
+    from scipy import ndimage
+    H, W = mask.shape
+    sk = skeletonize(ndimage.binary_opening(mask, iterations=6))
+    lab, n = ndimage.label(sk, structure=np.ones((3, 3)))
+    sizes = ndimage.sum(sk, lab, range(1, n + 1)); sk = lab == (1 + int(np.argmax(sizes)))   # 只要主干
+    cost = np.where(sk, 1.0, 1e6)
+    def snap(p):
+        ys, xs = np.nonzero(sk); j = np.argmin((xs - p[0]) ** 2 + (ys - p[1]) ** 2); return (ys[j], xs[j])
+    path, _ = route_through_array(cost, snap(start_hint), snap(end_hint), fully_connected=True, geometric=True)
+    P = np.array([(c, r) for r, c in path], float)
+    for _ in range(6): P[1:-1] = (P[:-2] + 2 * P[1:-1] + P[2:]) / 4
+    return P
