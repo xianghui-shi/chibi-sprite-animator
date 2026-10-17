@@ -1,6 +1,6 @@
 ---
 name: "chibi-sprite-animator"
-description: "用 AI 生成 8 帧 sprite 表 + 代码换帧合成，做任意画风的 Q 版/动漫小人动画（走路、挥手、指向、说话等），用于口播白板、穿越名画、科幻视频等。"
+description: "用 AI 生成 8 帧 sprite 表 + 代码换帧合成，做任意画风的 Q 版/动漫小人动画（走路、挥手、指向、说话等），用于口播白板、穿越名画、科幻视频等。另含「白板手绘」分支：口播/SRT 字幕 → 一笔笔画出场景的手绘白板视频（见分支 W）。"
 ---
 
 # Chibi Sprite Animator：AI 生帧 + 代码合成的动漫小人
@@ -18,6 +18,8 @@ description: "用 AI 生成 8 帧 sprite 表 + 代码换帧合成，做任意画
 4. **看图验收**：逐张检查脸是否一致、手是否被画出格子、循环是否顺。
 5. **合成**：场景层 → 脚底阴影 → 角色帧（按锚点对齐）→ 材质/调色 → 前景遮挡。
 6. **渲染 + 抽帧检查**。
+
+> 想要的不是"小人在旁边动"，而是"画面本身被一笔笔画出来"？走 **分支 W：白板手绘**（见文末）。两种形式不同：白板口播 = 小人是主角；白板手绘 = 画面是主角，参与感和融入性更强。也可分层叠加。
 
 ## 第 1 步：角色锁定句模板
 ```
@@ -229,6 +231,27 @@ json.dump(meta, open(f'{OUT}/meta.json', 'w'), indent=1)
 3. 拼接：`trim=end_frame=A` + 新镜头 + `trim=start_frame=B` → `concat`，`-map 0:a -c:a copy` 保持音画同步。多个镜头一次替换时，用一个 filter_complex 把原片切段和新镜头交替 concat。
 4. 画质不要刻意压：用 `-crf 15`（不设 maxrate），在用户电脑上的 shell 里直接合成，就不受 30MB 写回限制；检查总帧数与原片一致。注意 device shell 的后台进程会在调用结束时被杀，要在单次调用（≤180s）内跑完，用 `-preset fast`。大文件（>~30MB）从用户电脑传到云端会超时，改成每个镜头截成 crf10 的小片段再传。
 5. 换完抽帧看接缝（前后各 0.2s）。
+
+## 分支 W：白板手绘（口播/SRT → 一笔笔画出场景）
+**和白板口播的区别**：白板口播是小人在画面一侧换帧讲解；白板手绘是一支手/笔在米黄纸上把场景按叙事顺序连续画出来，再回头上色。画面本身是主角，参与感强。两者可单独用，也可分层叠加（手绘配景层 + 小人动作层，用 comp-layer-compositor 合成，白底小人用 multiply）。
+
+**代码和素材在 `whiteboard-handdraw/`**（基于 MIT 开源项目 geeklee/srt-whiteboard-animation 改造，署名见该目录 `UPSTREAM-LICENSE`）：
+- `scripts/transcribe_srt.py` 口播音频 → SRT（Whisper；**转写后必须逐句人工校对**，人名/同音字最易错，主角名向用户确认）
+- `scripts/make_annotation.py` 按"一句字幕一个区域"生成 annotation.json，让画面逐句对上口播
+- `scripts/render_stream_whiteboard.py` 渲染（笔迹 ink 铺线稿 → color 上色）、`merge_scenes.py` 多幕合并、`parse_srt.py` 分幕、`render_annotation_preview.py` 区域检查图（已加跨平台字体回退）
+- `assets/drawing-hand.png` **无字**画画手（已去掉原素材笔杆上的作者标识）；`assets/preview.html` 浏览器预览台
+- `scripts/demo_scene.py` 代码画线稿示例；`examples/` 有"奇奇松鼠"一幕的线稿、字幕、区域、标注和成片（无配音）
+
+**流程（每步给用户看，确认后再下一步）**
+1. 口播音频 → `transcribe_srt.py` → 校对字幕；`parse_srt.py` 按 25–35 秒/幕分镜。每幕只讲一个核心意思。
+2. **出线稿**：16:9、纸色 `#F5EBD7`、深灰线、仅红/橙/蓝少量点缀、极简、大量留白；**画面里绝对不能有文字/字母/数字**（标题另行叠字）。优先用生图模型（千问等）；没有生图时用代码画（`demo_scene.py`）。提示词里写死以上规范。
+3. **划区域**：每句字幕一个矩形区域，整数像素坐标，写成 `区域.json`（格式见 `make_annotation.py` 文件头），运行 `make_annotation.py`。规则：一支笔串行；后面区域的矩形会从前面区域里"挖掉"，所以**相邻区域边界要落在空白处**，别切到人物/物体中间；叙事顺序＝字幕事件先后，不是从左到右。
+4. `render_annotation_preview.py` 出检查图，核对编号、顺序、边界；需要可视化微调就用 `preview.html`。
+5. 渲染：`python scripts/render_stream_whiteboard.py 线稿.png 标注.json 输出.mp4 assets/drawing-hand.png --ink-path skeleton`（线稿清晰用 skeleton，默认 grid 更稳；`--fps` 默认 60，试片用 30；`--bare-tip` 不显示手）。首次先 `python scripts/prepare_env.py` 或自行安装 opencv-python、numpy、av。
+6. 用 ffmpeg 混入配音：`ffmpeg -i 片.mp4 -i 配音.wav -map 0:v -map 1:a -c:v copy -c:a aac -shortest 成片.mp4`。
+7. 验收：首帧干净空白纸；中段未画的区域不可见；每句口播时画面正画对应内容；末帧完整原图且停留 ≥0.5 秒；笔杆上没有文字。
+
+**已知限制**：一支笔串行，不适合多元素同时出现；区域内部的笔画先后由算法决定（要更细对齐就继续拆小区域）；输出默认长边 1080（`--cap-long-edge` 可调）；手素材是固定的一只手，换风格需自备素材。
 
 ## 过程素材要保留
 工作过程中的检查图、静帧对比、每一版小视频都不要删，按章节存到用户电脑的 `素材库/<章节>_过程视频|检查图|静帧对比/`，以后写文章用。

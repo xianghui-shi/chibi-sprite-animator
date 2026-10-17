@@ -1,0 +1,203 @@
+{
+  "sceneId": "scene-01",
+  "canvas": {
+    "width": 1672,
+    "height": 941
+  },
+  "storyBasis": "",
+  "sceneDurationMs": 28600,
+  "elements": [
+    {
+      "id": "r1",
+      "label": "森林与奇奇",
+      "sequence": 1,
+      "narrativeRole": "场景铺垫",
+      "subtitle": "在一片绿油油的森林里,住着一只名叫奇奇的小松鼠。",
+      "type": "structure",
+      "region": {
+        "x": 0,
+        "y": 260,
+        "width": 580,
+        "height": 681
+      },
+      "reveal": {
+        "direction": "top_to_bottom",
+        "startMs": 100,
+        "durationMs": 6420,
+        "maskPaddingPx": 22,
+        "protectedRegions": []
+      },
+      "handPath": {
+        "start": [
+          290,
+          270
+        ],
+        "end": [
+          290,
+          931
+        ],
+        "easing": "easeInOut"
+      }
+    },
+    {
+      "id": "r2",
+      "label": "树顶金松果",
+      "sequence": 2,
+      "narrativeRole": "梦想",
+      "subtitle": "奇奇最大的梦想,就是摘到那颗长在最高树顶上的金色松果。",
+      "type": "structure",
+      "region": {
+        "x": 130,
+        "y": 0,
+        "width": 260,
+        "height": 260
+      },
+      "reveal": {
+        "direction": "top_to_bottom",
+        "startMs": 6820,
+        "durationMs": 5580,
+        "maskPaddingPx": 22,
+        "protectedRegions": []
+      },
+      "handPath": {
+        "start": [
+          260,
+          10
+        ],
+        "end": [
+          260,
+          250
+        ],
+        "easing": "easeInOut"
+      }
+    },
+    {
+      "id": "r3",
+      "label": "大风刮来",
+      "sequence": 3,
+      "narrativeRole": "变化",
+      "subtitle": "于是奇奇使劲往上爬,突然一阵大风刮来。",
+      "type": "structure",
+      "region": {
+        "x": 560,
+        "y": 0,
+        "width": 550,
+        "height": 330
+      },
+      "reveal": {
+        "direction": "top_to_bottom",
+        "startMs": 12700,
+        "durationMs": 5300,
+        "maskPaddingPx": 22,
+        "protectedRegions": []
+      },
+      "handPath": {
+        "start": [
+          835,
+          10
+        ],
+        "end": [
+          835,
+          320
+        ],
+        "easing": "easeInOut"
+      }
+    },
+    {
+      "id": "r4",
+      "label": "掉进云朵",
+      "sequence": 4,
+      "narrativeRole": "动作",
+      "subtitle": "哎呀,它掉进了一个软绵绵的云朵里。",
+      "type": "character",
+      "region": {
+        "x": 560,
+        "y": 330,
+        "width": 550,
+        "height": 611
+      },
+      "reveal": {
+        "direction": "top_to_bottom",
+        "startMs": 18300,
+        "durationMs": 3500,
+        "maskPaddingPx": 22,
+        "protectedRegions": []
+      },
+      "handPath": {
+        "start": [
+          835,
+          340
+        ],
+        "end": [
+          835,
+          931
+        ],
+        "easing": "easeInOut"
+      }
+    },
+    {
+      "id": "r5",
+      "label": "天空之城",
+      "sequence": 5,
+      "narrativeRole": "结果",
+      "subtitle": "原来这里是天空之城。",
+      "type": "structure",
+      "region": {
+        "x": 1110,
+        "y": 150,
+        "width": 562,
+        "height": 370
+      },
+      "reveal": {
+        "direction": "top_to_bottom",
+        "startMs": 22100,
+        "durationMs": 2300,
+        "maskPaddingPx": 22,
+        "protectedRegions": []
+      },
+      "handPath": {
+        "start": [
+          1391,
+          160
+        ],
+        "end": [
+          1391,
+          510
+        ],
+        "easing": "easeInOut"
+      }
+    },
+    {
+      "id": "r6",
+      "label": "云上的奇奇",
+      "sequence": 6,
+      "narrativeRole": "悬念",
+      "subtitle": "小朋友们,你们猜奇奇接下来会遇到谁呢?",
+      "type": "character",
+      "region": {
+        "x": 1110,
+        "y": 520,
+        "width": 562,
+        "height": 421
+      },
+      "reveal": {
+        "direction": "top_to_bottom",
+        "startMs": 24700,
+        "durationMs": 3700,
+        "maskPaddingPx": 22,
+        "protectedRegions": []
+      },
+      "handPath": {
+        "start": [
+          1391,
+          530
+        ],
+        "end": [
+          1391,
+          931
+        ],
+        "easing": "easeInOut"
+      }
+    }
+  ]
+}

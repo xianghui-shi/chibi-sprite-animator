@@ -11,10 +11,11 @@
 - 8 种画风配方（日系 Q 版、白板线稿、像素、赛博霓虹、浮世绘、水彩、黏土、美漫）
 - 通用切帧脚本 `cut.py`（绿幕 / 白底，输出脚底锚点 meta.json）
 - 合成规则、验收清单、常见问题
+- **白板手绘分支**（`whiteboard-handdraw/`）：口播/SRT 字幕 → 一笔笔画出场景的手绘白板视频。含转写、逐句区域标注、渲染、合并脚本和无字画画手素材，附示例
 
 ## 安装
-把本仓库的 `SKILL.md` 放到 `~/.claude/skills/chibi-sprite-animator/SKILL.md`，
+把本仓库整个文件夹（含 `SKILL.md` 和 `whiteboard-handdraw/`）放到 `~/.claude/skills/chibi-sprite-animator/`，
 或在 claude.ai 的 Skills 里上传本文件夹。
 
 ## 许可
-MIT
+MIT。`whiteboard-handdraw/` 中的渲染代码改编自 [geeklee/srt-whiteboard-animation](https://github.com/geeklee/srt-whiteboard-animation)（MIT），许可文本见 `whiteboard-handdraw/UPSTREAM-LICENSE`。

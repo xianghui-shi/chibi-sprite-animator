@@ -1,0 +1,8 @@
+[
+ {"cue":1,"label":"森林与奇奇","role":"场景铺垫","type":"structure","x":0,"y":260,"w":580,"h":681},
+ {"cue":2,"label":"树顶金松果","role":"梦想","type":"structure","x":130,"y":0,"w":260,"h":260},
+ {"cue":3,"label":"大风刮来","role":"变化","type":"structure","x":560,"y":0,"w":550,"h":330},
+ {"cue":4,"label":"掉进云朵","role":"动作","type":"character","x":560,"y":330,"w":550,"h":611},
+ {"cue":5,"label":"天空之城","role":"结果","type":"structure","x":1110,"y":150,"w":562,"h":370},
+ {"cue":6,"label":"云上的奇奇","role":"悬念","type":"character","x":1110,"y":520,"w":562,"h":421}
+]
